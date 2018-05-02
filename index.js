@@ -112,6 +112,41 @@ var Splunk = function() {
         });
     };
 
+    Splunk.prototype.getSplunkSavedSearches = function() {
+        var _this = this;
+
+        // Prepare call params
+        var options = {
+            method: 'POST',
+            url: _this.url.splunk['searches'],
+            port: 443,
+            insecure: false,
+            rejectUnauthorized: false,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            form: 'username=' + this.credentials.splunk.user + '&password=' + encodeURIComponent(this.credentials.splunk.pass)
+        };
+
+        // Get raw response
+        var promise_getData = this.getData(options);
+        promise_getData.then(function (response) {
+            if (!response) { 
+                //console.debug('getSplunkSavedSearches - No response');
+                return false 
+            };
+
+            _this.data.splunk['response'] = response;
+            //console.debug('getSplunkSavedSearches - _this.data.splunk[response]: ', _this.data.splunk['response']);
+
+            return response;
+        })
+        .catch(function (err) {
+            console.debug('getSplunkSavedSearches - Call failed: ', err);
+            return err;
+        });
+    };
+
 
     Splunk.prototype.processHPSMData = function(reqPromise) {
         var _this = this;
@@ -184,6 +219,13 @@ var Splunk = function() {
             // Splunk Login success
         } else {
             // Splunk Login failed
+        };
+
+
+        if (this.getSplunkSavedSearches()) {
+            // HPSM saved searches call success
+        } else {
+            // HPSM saved searches call failed
         };
 
         /*
