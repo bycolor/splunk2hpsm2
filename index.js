@@ -4,7 +4,7 @@ var Splunk = function() {
         try {
             this.mod_reqPromise = require('request-promise');
         } catch(err) {
-            console.debug('Module request-promise can not be loaded, aborting...\n', err);
+            console.debug('\n Module request-promise can not be loaded, aborting...', err.message);
             return false;
         };
 
@@ -12,7 +12,7 @@ var Splunk = function() {
             this.mod_xml2js = require('xml2js');
             this.xmlParser = new this.mod_xml2js.Parser();
         } catch(err) {
-            console.debug('Module xml2js can not be loaded, aborting...\n', err);
+            console.debug('\n Module xml2js can not be loaded, aborting...\n', err.message);
             return false;
         };
 
@@ -29,6 +29,7 @@ var Splunk = function() {
         this.url.splunk = [];
             this.url.splunk['root'] = 'https://splunk.unicreditgroup.eu/en-US/splunkd/__raw/services/';
             this.url.splunk['login'] = this.url.splunk['root'] + 'auth/login';
+            this.url.splunk['messages'] = this.url.splunk['root'] + 'messages';
             this.url.splunk['searches'] = this.url.splunk['root'] + 'saved/searches';
             this.url.splunk['fired-alerts'] = this.url.splunk['root'] + 'alerts/fired_alerts';
         this.url.hpsm = [];
@@ -46,21 +47,27 @@ var Splunk = function() {
 
     
     Splunk.prototype.parseXML = function(data) {
+        var _this = this;
         if (!data) { return false };
 
         // Extract the session key
-        this.xmlParser.parseString(data, function (err, result) {
+        return this.xmlParser.parseString(data, function (err, result) {
             if (!err) {
                 // Success parsing XML
-                console.debug('parseXML - result.response.sessionKey: ', result.response.sessionKey[0]);
+                console.debug('parseXML - result.response.sessionKey[0]: ', result.response.sessionKey[0]);
+                _this.data.splunk['sessionkey'] = result.response.sessionKey[0];
+                return result.response.sessionKey[0];
             } else {
                 // Error parsing XML
                 console.debug('parseXML - parseXML - XML parsing failed, cant extract sessionkey: ', err);
+                _this.data.splunk['sessionkey'] = false;
+                return false;
             };
         });
     };
 
     
+    // General getter
     Splunk.prototype.getData = function(options) {
         var _this = this;
 
@@ -79,7 +86,7 @@ var Splunk = function() {
             form: options.form || ''
         };
 
-        console.log('calling ' + options.url);
+        console.log('\n calling ' + options.url);
         
         // Execute the call and store it as a promise
         var reqPromise = this.mod_reqPromise(options);
@@ -101,13 +108,20 @@ var Splunk = function() {
 
             // Extract session key from raw login response
             if (_this.data.splunk['xml-sessionkey']) {
-                _this.data.splunk['sessionkey'] = _this.parseXML(_this.data.splunk['xml-sessionkey']);
+                _this.parseXML(_this.data.splunk['xml-sessionkey']);
+            };
+
+            if (_this.data.splunk['sessionkey']) {
+                console.debug('getSplunkSessionkey - _this.data.splunk[sessionkey]: ', _this.data.splunk['sessionkey']);
+                _this.getSplunkSavedSearches();
+            } else {
+                console.debug('getSplunkSessionkey - No sessionkey');
             };
 
             return response;
         })
         .catch(function (err) {
-            console.debug('getSplunkSessionkey - Call failed: ', err);
+            console.debug('\n getSplunkSessionkey - Call failed: \n', err.message);
             return err;
         });
     };
@@ -118,15 +132,19 @@ var Splunk = function() {
         // Prepare call params
         var options = {
             method: 'POST',
-            url: _this.url.splunk['searches'],
+            url: _this.url.splunk['messages'],
             port: 443,
             insecure: false,
             rejectUnauthorized: false,
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authentication': 'Splunk ' + _this.data.splunk['sessionkey']
             },
             form: 'username=' + this.credentials.splunk.user + '&password=' + encodeURIComponent(this.credentials.splunk.pass)
         };
+
+
+        console.debug('\n getSplunkSavedSearches - options: \n', options);
 
         // Get raw response
         var promise_getData = this.getData(options);
@@ -137,12 +155,12 @@ var Splunk = function() {
             };
 
             _this.data.splunk['response'] = response;
-            //console.debug('getSplunkSavedSearches - _this.data.splunk[response]: ', _this.data.splunk['response']);
+            //console.debug('getSplunkSavedSearches - _this.data.splunk[response]:  \n', _this.data.splunk['response']);
 
             return response;
         })
         .catch(function (err) {
-            console.debug('getSplunkSavedSearches - Call failed: ', err);
+            console.debug('\n getSplunkSavedSearches - Call failed: \n', err.message);
             return err;
         });
     };
@@ -159,7 +177,7 @@ var Splunk = function() {
             return response;
         })
         .catch(function (err) {
-            console.debug('processHPSMData - Call failed: ', err);
+            console.debug('\n processHPSMData - Call failed: \n', err.message);
             return err;
         });
     };
@@ -221,12 +239,6 @@ var Splunk = function() {
             // Splunk Login failed
         };
 
-
-        if (this.getSplunkSavedSearches()) {
-            // HPSM saved searches call success
-        } else {
-            // HPSM saved searches call failed
-        };
 
         /*
         if (this.loginHPSM()) {
