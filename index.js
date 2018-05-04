@@ -16,6 +16,22 @@ var Splunk = function() {
             return false;
         };
 
+        try {
+            this.mod_http = require('http');
+        } catch(err) {
+            console.debug('\n Module http can not be loaded, aborting...\n', err.message);
+            return false;
+        };
+
+        try {
+            this.mod_express = require('express');
+            this.express = this.mod_express();
+            console.log('------- loaded express ---------')
+        } catch(err) {
+            console.debug('\n Module express can not be loaded, aborting...\n', err.message);
+            return false;
+        };
+
         // Initialize data
         this.data = [];
         // Don't forget to reset the session key!
@@ -38,8 +54,10 @@ var Splunk = function() {
         // Set up credentials
         this.credentials = [];
         this.credentials.splunk = [];
-            this.credentials.splunk['user'] = (credentials && credentials.splunk['user']) || 'C310865_14';
-            this.credentials.splunk['pass'] = (credentials && credentials.splunk['pass']) || '@*HC5k@+';
+            // IMPORTANT!
+            // Do NOT push on GitHub until current credentials have expired!
+            this.credentials.splunk['user'] = credentials && credentials.splunk['user'] ? credentials.splunk['user'] : '';
+            this.credentials.splunk['pass'] = credentials && credentials.splunk['pass'] ? credentials.splunk['pass'] : '';
         this.credentials.hpsm = [];
 
         return true;
@@ -232,6 +250,49 @@ var Splunk = function() {
     };
 
 
+    Splunk.prototype.startServer = function() {
+        var _this = this;
+        // Handle your routes here, put static pages in ./public and they will server
+
+        // Create HTTP server and listen on port 8000 for requests
+        /*
+        var server = this.mod_http.createServer(function(request, response) {
+            console.debug('startServer - request: ', request);
+
+            response.writeHead(200, {'Content-Type': 'text/plain'});
+            response.end('{id: "1"}');
+        });
+        */
+
+        var server = this.express.get('/api/splunk/sessionkey', function(request, response) {
+            //console.debug('startServer - request: ', request);
+            if (request) {
+                //console.debug(request);
+                if (request.user && request.pass) {
+                    _this.credentials.splunk['user'] = request.user;
+                    _this.credentials.splunk['pass'] = request.pass;
+                    _this.loginSplunk();
+                    // Shouldt this be async with the login call?
+                    response.send({sessionkey: _this.data.splunk['sessionkey']});
+                } else {
+                    response.send({message: 'no data'});
+                }
+            };
+        });
+
+        //server = require('http-shutdown')(server);
+        server.listen(8000);
+    };
+
+
+    Splunk.prototype.stopServer = function(server) {
+        // Sometime later... shutdown the server.
+        server.shutdown(function() {
+            console.log('Everything is cleanly shutdown.');
+        });
+    };
+
+
     Splunk.prototype.powerUp = function() {
         if (this.loginSplunk()) {
             // Splunk Login success
@@ -239,6 +300,7 @@ var Splunk = function() {
             // Splunk Login failed
         };
 
+        this.startServer();
 
         /*
         if (this.loginHPSM()) {
