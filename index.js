@@ -24,9 +24,16 @@ var Splunk = function() {
         };
 
         try {
+            this.mod_cors = require('cors');
+            this.cors = this.mod_cors();
+        } catch(err) {
+            console.debug('\n Module cors can not be loaded, aborting...\n', err.message);
+            return false;
+        };
+
+        try {
             this.mod_express = require('express');
             this.express = this.mod_express();
-            console.log('------- loaded express ---------')
         } catch(err) {
             console.debug('\n Module express can not be loaded, aborting...\n', err.message);
             return false;
@@ -72,12 +79,12 @@ var Splunk = function() {
         return this.xmlParser.parseString(data, function (err, result) {
             if (!err) {
                 // Success parsing XML
-                console.debug('parseXML - result.response.sessionKey[0]: ', result.response.sessionKey[0]);
+                console.debug('parseXML() - result.response.sessionKey[0]: ', result.response.sessionKey[0]);
                 _this.data.splunk['sessionkey'] = result.response.sessionKey[0];
                 return result.response.sessionKey[0];
             } else {
                 // Error parsing XML
-                console.debug('parseXML - parseXML - XML parsing failed, cant extract sessionkey: ', err);
+                console.debug('parseXML()) - XML parsing failed, cant extract sessionkey: ', err);
                 _this.data.splunk['sessionkey'] = false;
                 return false;
             };
@@ -104,21 +111,33 @@ var Splunk = function() {
             form: options.form || ''
         };
 
-        console.log('\n calling ' + options.url);
+        console.log('\n getData() calling URL: ' + options.url);
         
         // Execute the call and store it as a promise
-        var reqPromise = this.mod_reqPromise(options);
-
-        return reqPromise;
+        return this.mod_reqPromise(options);
     };
 
 
-    Splunk.prototype.getSplunkSessionkey = function(reqPromise) {
+    Splunk.prototype.getSplunkSessionkey = function() {
         var _this = this;
 
-        reqPromise.then(function (response) {
+        // Prepare call params
+        var options = {
+            method: 'POST',
+            url: _this.url.splunk['login'],
+            port: 443,
+            insecure: false,
+            rejectUnauthorized: false,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            form: 'username=' + this.credentials.splunk.user + '&password=' + encodeURIComponent(this.credentials.splunk.pass)
+        };
+
+        // Get raw login response
+        return this.getData(options).then(function (response) {
             if (!response) { 
-                console.debug('getSplunkSessionkey - No response');
+                console.debug('getSplunkSessionkey() - No response');
                 return false 
             };
 
@@ -130,16 +149,16 @@ var Splunk = function() {
             };
 
             if (_this.data.splunk['sessionkey']) {
-                console.debug('getSplunkSessionkey - _this.data.splunk[sessionkey]: ', _this.data.splunk['sessionkey']);
+                console.debug('getSplunkSessionkey() - _this.data.splunk[sessionkey]: ', _this.data.splunk['sessionkey']);
                 _this.getSplunkSavedSearches();
             } else {
-                console.debug('getSplunkSessionkey - No sessionkey');
+                console.debug('getSplunkSessionkey() - No sessionkey');
             };
 
             return response;
         })
         .catch(function (err) {
-            console.debug('\n getSplunkSessionkey - Call failed: \n', err.message);
+            console.debug('\n getSplunkSessionkey() - Call failed: \n', err.message);
             return err;
         });
     };
@@ -165,8 +184,7 @@ var Splunk = function() {
         console.debug('\n getSplunkSavedSearches - options: \n', options);
 
         // Get raw response
-        var promise_getData = this.getData(options);
-        promise_getData.then(function (response) {
+        return this.getData(options).then(function (response) {
             if (!response) { 
                 //console.debug('getSplunkSavedSearches - No response');
                 return false 
@@ -201,11 +219,9 @@ var Splunk = function() {
     };
 
 
+    /*
     Splunk.prototype.loginSplunk = function() {
         var _this = this;
-
-        // Set up initial data 
-        if (!this.init()) { return false };
 
         // Prepare call params
         var options = {
@@ -220,13 +236,13 @@ var Splunk = function() {
             form: 'username=' + this.credentials.splunk.user + '&password=' + encodeURIComponent(this.credentials.splunk.pass)
         };
 
-        // Get raw login response
-        var promise_getData = this.getData(options);
-        // Set the sessionkey
-        this.getSplunkSessionkey(promise_getData);
 
-        return this.data.splunk['sessionkey'] || false;
+        console.debug('loginSplunk - options: ', options);
+
+        // Set the sessionkey
+        return this.getSplunkSessionkey(options);
     };
+       */
 
 
     Splunk.prototype.loginHPSM = function() {
@@ -244,43 +260,52 @@ var Splunk = function() {
         console.debug('loginHPSM - options: ', options);
 
         // Get raw HPSM login response
-        var promise_getData = this.getData(options);
-
-        return this.data.hpsm['response'] || false;
+        return this.getData(options);
     };
 
 
     Splunk.prototype.startServer = function() {
         var _this = this;
-        // Handle your routes here, put static pages in ./public and they will server
-
-        // Create HTTP server and listen on port 8000 for requests
-        /*
-        var server = this.mod_http.createServer(function(request, response) {
-            console.debug('startServer - request: ', request);
-
-            response.writeHead(200, {'Content-Type': 'text/plain'});
-            response.end('{id: "1"}');
-        });
-        */
+        
+       this.express.use(this.cors);
+       this.express.options("*", this.cors);
 
         var server = this.express.get('/api/splunk/sessionkey', function(request, response) {
-            //console.debug('startServer - request: ', request);
-            if (request) {
-                //console.debug(request);
-                if (request.user && request.pass) {
-                    _this.credentials.splunk['user'] = request.user;
-                    _this.credentials.splunk['pass'] = request.pass;
-                    _this.loginSplunk();
-                    // Shouldt this be async with the login call?
-                    response.send({sessionkey: _this.data.splunk['sessionkey']});
-                } else {
-                    response.send({message: 'no data'});
-                }
+            if (!request) { 
+                response.send({error: true, message: 'No request object'});
+                return false;
             };
+
+            if (!request.query) { 
+                response.send({error: true, message: 'No request request query'});
+                return false;
+            };
+
+            if (request.query.user && request.query.pass) {
+                _this.credentials.splunk.user = request.query.user;
+                _this.credentials.splunk.pass = request.query.pass;
+                
+                console.log('\n--0--\n');
+
+                _this.getSplunkSessionkey().then(function(res) {
+                    // Shouldt this be async with the login call?
+                    console.log('\n--1--\n');
+                    if (_this.data.splunk['sessionkey']) {
+                        console.log('\n--2--\n');
+                        response.send({error: false, sessionkey: _this.data.splunk['sessionkey']});
+                    } else {
+                        console.log('\n--3--\n');
+                        response.send({error: true, message: "No sessionkey retrieved"});
+                    };
+                }, function(fail) {
+                    console.log('\n--4--\n');
+                });
+            } else {
+                console.log('\n--5--\n');
+                response.send({error: true, message: 'No request params'});
+            }
         });
 
-        //server = require('http-shutdown')(server);
         server.listen(8000);
     };
 
@@ -294,21 +319,11 @@ var Splunk = function() {
 
 
     Splunk.prototype.powerUp = function() {
-        if (this.loginSplunk()) {
-            // Splunk Login success
-        } else {
-            // Splunk Login failed
-        };
+
+        // Set up initial data 
+        if (!this.init()) { return false };
 
         this.startServer();
-
-        /*
-        if (this.loginHPSM()) {
-            // HPSM Login success
-        } else {
-            // HPSM Login failed
-        };
-        */
     };
 };
 
